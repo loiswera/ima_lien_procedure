@@ -2,6 +2,7 @@ import os
 import re
 import fitz
 from urllib.parse import urlparse
+from unidecode import unidecode
 
 #Fonction de récupération de la liste des fichiers PDF
 def list_pdfs(directory):
@@ -67,7 +68,7 @@ def extract_dsop_phrases_from_last_page(pdf_path):
         last_page = document[-1]
         text = last_page.get_text("text")
 
-        pattern = r'\bDSOP_Methode\s?.*'
+        pattern = r'=> \s?.*'
         matches = re.findall(pattern, text, re.IGNORECASE)
 
         matches = [match.strip() for match in matches]
@@ -93,6 +94,12 @@ def log_missing_file(source_file, missing_file, log_file):
 def normalize_name(name):
     return name.replace(" ", "").lower()
 
+def normalize_phrase(name):
+    new_name = unidecode(name)
+    new_name = re.sub(r'\W+', '_', new_name)
+    new_name = new_name.strip('_') + ".pdf"
+    return new_name
+
 
 #Trouver le fichier local sur OneDrive
 def find_folder_in_onedrive(site_name, onedrive_root):
@@ -114,6 +121,8 @@ def find_folder_in_onedrive(site_name, onedrive_root):
 #Constante de chemin d'accès à l'utilisateur et du dossier de recherche des fichiers PDF
 user_path = get_onedrive_root()
 SHAREPOINT_BASE_URL = input("Entrez l'URL de base de SharePoint jusqu'à Documents Partagés : ").strip()
+#SHAREPOINT_BASE_URL = "https://sharepoint.com/ilovepdf_converted"
+#folder_path_by_user_path = "/Users/loiswera/Downloads/ilovepdf_converted"
 site_name = extract_sharepoint_site_name(SHAREPOINT_BASE_URL)
 print(f"Nom du site SharePoint extrait : {site_name}")
 folder_path_by_user_path = find_folder_in_onedrive(site_name, user_path)
@@ -126,17 +135,19 @@ log_file = os.path.join(user_path, folder_path_by_user_path, "missing_links.txt"
 #Recherche des fichiers PDF
 directory = os.path.join(user_path, folder_path_by_user_path)
 pdf_files = list_pdfs(directory)
+print(f"Nombre de fichiers PDF trouvés : {len(pdf_files)}")
 dsop_data = {}
 
 for pdf in pdf_files:
     dsop_phrases = extract_dsop_phrases_from_last_page(pdf)
+    print(dsop_phrases)
     dsop_data[os.path.basename(os.path.basename(pdf).split('.')[0])] = dsop_phrases
     for phrase in dsop_phrases:
         found = False
-        normalized_phrase = normalize_name(phrase)
+        normalized_phrase = normalize_phrase(phrase)
         for pd in pdf_files:
-            normalized_file = normalize_name(os.path.basename(pd))
-            if normalized_phrase + ".pdf" == normalized_file:
+            normalized_file = normalize_phrase(os.path.basename(pd)[:-4])
+            if normalized_phrase == normalized_file:
                 search_and_link_phrase(pdf, phrase, pd)
                 print(f"Phrase correspondante trouvée : {phrase}")
                 found = True
