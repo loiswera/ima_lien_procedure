@@ -2,7 +2,10 @@ import os
 import re
 import fitz
 from urllib.parse import urlparse
-from unidecode import unidecode
+
+from normalize import normalize_name, normalize_phrase
+from reference import get_reference
+
 
 #Fonction de récupération de la liste des fichiers PDF
 def list_pdfs(directory):
@@ -47,6 +50,7 @@ def search_and_link_phrase(pdf_path, sentence, link_target):
                     "kind": fitz.LINK_URI
                 })
         document.save(pdf_path, incremental=True, encryption=0)
+        print (f"Phrase trouvée et lien ajouté : {sentence}")
         return True
     except Exception as e:
         print(f"Error processing {pdf_path}: {e}")
@@ -68,11 +72,12 @@ def extract_dsop_phrases_from_last_page(pdf_path):
         last_page = document[-1]
         text = last_page.get_text("text")
 
-        pattern = r'=> \s?.*'
+        pattern = r'DSOP_.*'
         matches = re.findall(pattern, text, re.IGNORECASE)
 
         matches = [match.strip() for match in matches]
-        return matches
+        reference_matches = [get_reference(match) for match in matches]
+        return reference_matches, matches
     except Exception as e:
         print(f"Erreur lors de l'analyse de {pdf_path}: {e}")
         return []
@@ -89,17 +94,6 @@ def log_missing_file(source_file, missing_file, log_file):
                 return
         with open(log_file, "a") as f:
             f.write(log_entry)
-
-#Supprime les espaces des noms de fichiers
-def normalize_name(name):
-    return name.replace(" ", "").lower()
-
-def normalize_phrase(name):
-    new_name = unidecode(name)
-    new_name = re.sub(r'\W+', '_', new_name)
-    new_name = new_name.strip('_') + ".pdf"
-    return new_name
-
 
 #Trouver le fichier local sur OneDrive
 def find_folder_in_onedrive(site_name, onedrive_root):
@@ -120,9 +114,12 @@ def find_folder_in_onedrive(site_name, onedrive_root):
 
 #Constante de chemin d'accès à l'utilisateur et du dossier de recherche des fichiers PDF
 user_path = get_onedrive_root()
+
+#SHAREPOINT_BASE_URL = "https://emineoeducation.sharepoint.com/teams/Renommage_procedure/Documents%20partages/pdf/"
+#folder_path_by_user_path = "/Users/loiswera/Downloads/pdf"
+#log_file = os.path.join(user_path, folder_path_by_user_path, "missing_links.txt")
+
 SHAREPOINT_BASE_URL = input("Entrez l'URL de base de SharePoint jusqu'à Documents Partagés : ").strip()
-#SHAREPOINT_BASE_URL = "https://sharepoint.com/ilovepdf_converted"
-#folder_path_by_user_path = "/Users/loiswera/Downloads/ilovepdf_converted"
 site_name = extract_sharepoint_site_name(SHAREPOINT_BASE_URL)
 print(f"Nom du site SharePoint extrait : {site_name}")
 folder_path_by_user_path = find_folder_in_onedrive(site_name, user_path)
@@ -139,18 +136,22 @@ print(f"Nombre de fichiers PDF trouvés : {len(pdf_files)}")
 dsop_data = {}
 
 for pdf in pdf_files:
-    dsop_phrases = extract_dsop_phrases_from_last_page(pdf)
-    print(dsop_phrases)
-    dsop_data[os.path.basename(os.path.basename(pdf).split('.')[0])] = dsop_phrases
-    for phrase in dsop_phrases:
+    dsop_reference, dsop_phrases = extract_dsop_phrases_from_last_page(pdf)
+    dsop_data[os.path.basename(pdf).split('.')[0]] = dsop_phrases
+
+    for reference, phrase in zip(dsop_reference, dsop_phrases):  # Associer référence et phrase brute
         found = False
-        normalized_phrase = normalize_phrase(phrase)
+        print(f"Phrase brute : {phrase}")
+        print(f"Reference : {reference}")
+        normalized_phrase = normalize_phrase(reference)
+
         for pd in pdf_files:
             normalized_file = normalize_phrase(os.path.basename(pd)[:-4])
+
             if normalized_phrase == normalized_file:
                 search_and_link_phrase(pdf, phrase, pd)
                 print(f"Phrase correspondante trouvée : {phrase}")
                 found = True
+
         if not found:
             log_missing_file(phrase + ".pdf", os.path.basename(pdf), log_file)
-            print(f"Phrase introuvable dans les noms de fichiers : {normalized_phrase}.pdf, {pdf}")
